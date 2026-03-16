@@ -1,0 +1,10 @@
+services:
+  voice-relay:
+    container_name: voice-relay
+    image: voice-relay:latest
+    pull_policy: never
+    env_file:
+      - .env
+    ports:
+      - "${PORT:-9000}:${PORT:-9000}"
+    restart: unless-stopped

@@ -1,0 +1,13 @@
+[Unit]
+Description=Voice Relay Service
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/voice-relay
+ExecStart=/opt/voice-relay/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 9000
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
