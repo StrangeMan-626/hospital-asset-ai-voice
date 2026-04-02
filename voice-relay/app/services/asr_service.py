@@ -1,12 +1,14 @@
 import asyncio
+import logging
+import os
 import subprocess
 import tempfile
-import os
-import logging
+
 from dashscope.audio.asr import Recognition
+
 from app.core.config import get_settings
 from app.core.dashscope_config import configure_dashscope
-from app.core.errors import RelayError
+from app.core.errors import ErrorCode, RelayError
 
 logger = logging.getLogger("voice-relay")
 
@@ -44,7 +46,7 @@ async def recognize(audio_bytes: bytes, filename: str = "audio.wav") -> dict:
 
         def _call():
             recognition = Recognition(
-                model=settings.ASR_MODEL,
+                model=settings.ASR_SYNC_MODEL,
                 format=fmt,
                 sample_rate=16000,
                 language_hints=["zh", "en"],
@@ -58,9 +60,9 @@ async def recognize(audio_bytes: bytes, filename: str = "audio.wav") -> dict:
                 timeout=settings.ASR_TIMEOUT,
             )
         except asyncio.TimeoutError:
-            raise RelayError(504, "ASR upstream timeout")
+            raise RelayError(504, "ASR upstream timeout", ErrorCode.ASR_TIMEOUT)
         except Exception as e:
-            raise RelayError(502, f"ASR SDK error: {e}")
+            raise RelayError(502, f"ASR SDK error: {e}", ErrorCode.ASR_CONNECT_FAIL)
 
         logger.info("ASR raw output: %s", result)
         sentences = result.get_sentence()

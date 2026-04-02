@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Response
 from pydantic import BaseModel, Field
+from app.core.config import get_settings
 from app.core.errors import RelayError
 from app.services import tts_service
 
@@ -18,4 +19,4 @@ async def synthesize(req: TTSRequest):
     if len(req.text) > 20000:
         raise RelayError(400, "text exceeds 20000 characters")
     audio = await tts_service.synthesize(req.text)
-    return Response(content=audio, media_type="audio/mpeg")
+    return Response(content=audio, media_type=tts_service.get_tts_media_type(get_settings().TTS_AUDIO_FORMAT))

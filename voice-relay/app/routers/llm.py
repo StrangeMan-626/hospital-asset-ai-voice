@@ -7,4 +7,4 @@ router = APIRouter(tags=["LLM"])
 @router.post("/v1/chat/completions")
 async def chat_completions(request: Request):
     body = await request.body()
-    return await llm_service.chat_completions(body)
+    return await llm_service.chat_completions(body, trace_id=request.headers.get("x-trace-id", ""))
