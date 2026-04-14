@@ -1,12 +1,14 @@
 import ipaddress
+from typing import Union
 
 from app.core.config import get_settings
 
-_allowed_nets: list[ipaddress._BaseNetwork] | None = None
+_Network = Union[ipaddress.IPv4Network, ipaddress.IPv6Network]
+_allowed_nets: list[_Network] | None = None
 
 
-def parse_allowed_networks(raw: str) -> list[ipaddress._BaseNetwork]:
-    nets: list[ipaddress._BaseNetwork] = []
+def parse_allowed_networks(raw: str) -> list[_Network]:
+    nets: list[_Network] = []
     for item in raw.split(","):
         value = item.strip()
         if not value:
@@ -18,7 +20,7 @@ def parse_allowed_networks(raw: str) -> list[ipaddress._BaseNetwork]:
     return nets
 
 
-def get_allowed_nets() -> list[ipaddress._BaseNetwork]:
+def get_allowed_nets() -> list[_Network]:
     global _allowed_nets
     if _allowed_nets is None:
         _allowed_nets = parse_allowed_networks(get_settings().ALLOWED_IPS)

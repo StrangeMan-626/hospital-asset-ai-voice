@@ -1,4 +1,5 @@
 import json
+import logging
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
@@ -8,6 +9,7 @@ from app.core.security import is_ip_allowed
 from app.models.session import Session
 from app.services.tts_realtime_service import TTSRealtimeSession
 
+logger = logging.getLogger("voice-relay")
 router = APIRouter(tags=["TTS"])
 PONG = json.dumps({"type": "pong"})
 
@@ -20,6 +22,7 @@ async def tts_realtime(ws: WebSocket):
         return
 
     await ws.accept()
+    logger.info("TTS realtime ws connected ip=%s", client_ip)
     settings = get_settings()
     session_service = ws.app.state.session_service
     degrade_service = ws.app.state.degrade_service
@@ -68,6 +71,13 @@ async def tts_realtime(ws: WebSocket):
                     await ws.send_text(ws_error_msg(ErrorCode.SESSION_LIMIT, "TTS session limit reached"))
                     continue
                 session = Session(data.get("sessionId"), data.get("terminalId", ""))
+                session.round_id = data.get("roundId", "")
+                logger.info(
+                    "TTS realtime start received sessionId=%s terminalId=%s roundId=%s",
+                    session.session_id,
+                    session.terminal_id,
+                    session.round_id,
+                )
                 session_service.register(session)
                 session_service.attach_connection(session.session_id, ws)
                 session.activate()
@@ -91,6 +101,13 @@ async def tts_realtime(ws: WebSocket):
                         await tts_rt.close()
                         tts_rt = None
                         degraded_mode = True
+                logger.info(
+                    "TTS realtime started sessionId=%s traceId=%s roundId=%s degraded=%s",
+                    session.session_id,
+                    session.trace_id,
+                    session.round_id,
+                    degraded_mode,
+                )
                 continue
 
             if session is None:
@@ -100,6 +117,13 @@ async def tts_realtime(ws: WebSocket):
             if msg_type == "text":
                 content = data.get("content", "")
                 session.touch()
+                logger.info(
+                    "TTS realtime text received sessionId=%s roundId=%s chars=%s degraded=%s",
+                    session.session_id,
+                    session.round_id,
+                    len(content),
+                    degraded_mode,
+                )
                 if degraded_mode:
                     text_buffer.append(content)
                 elif tts_rt is not None:
@@ -107,6 +131,13 @@ async def tts_realtime(ws: WebSocket):
                         await tts_rt.send_text(content)
                     except RelayError as exc:
                         degrade_service.record_tts_fail()
+                        logger.warning(
+                            "TTS realtime send_text failed sessionId=%s roundId=%s code=%s message=%s",
+                            session.session_id,
+                            session.round_id,
+                            exc.code,
+                            exc.message,
+                        )
                         await ws.send_text(
                             ws_error_msg(
                                 exc.code,
@@ -119,31 +150,53 @@ async def tts_realtime(ws: WebSocket):
 
             if msg_type == "finish":
                 session.touch()
+                logger.info(
+                    "TTS realtime finish received sessionId=%s roundId=%s degraded=%s bufferedChars=%s",
+                    session.session_id,
+                    session.round_id,
+                    degraded_mode,
+                    len("".join(text_buffer)) if degraded_mode else 0,
+                )
                 if degraded_mode:
                     await degrade_service.tts_sync_fallback(
                         "".join(text_buffer),
                         ws,
                         session_id=session.session_id,
                         trace_id=session.trace_id,
+                        round_id=session.round_id,
                     )
                     degrade_service.record_tts_success()
                     payload = {
                         "type": "completed",
                         "sessionId": session.session_id,
                         "traceId": session.trace_id,
+                        "roundId": session.round_id,
                         "degraded": True,
                     }
                 elif tts_rt is not None:
                     await tts_rt.finish()
+                    await tts_rt.send_tts_end("completed")
                     degrade_service.record_tts_success()
                     payload = {
                         "type": "completed",
                         "sessionId": session.session_id,
                         "traceId": session.trace_id,
+                        "roundId": session.round_id,
                     }
                 else:
-                    payload = {"type": "completed", "sessionId": session.session_id, "traceId": session.trace_id}
+                    payload = {
+                        "type": "completed",
+                        "sessionId": session.session_id,
+                        "traceId": session.trace_id,
+                        "roundId": session.round_id,
+                    }
                 await ws.send_text(json.dumps(payload, ensure_ascii=False))
+                logger.info(
+                    "TTS realtime completed sessionId=%s roundId=%s degraded=%s",
+                    payload["sessionId"],
+                    payload["roundId"],
+                    payload.get("degraded", False),
+                )
                 if tts_rt is not None:
                     await tts_rt.close()
                     tts_rt = None
@@ -158,7 +211,13 @@ async def tts_realtime(ws: WebSocket):
                 continue
 
             if msg_type == "cancel":
+                logger.info(
+                    "TTS realtime cancel received sessionId=%s roundId=%s",
+                    session.session_id,
+                    session.round_id,
+                )
                 if tts_rt is not None:
+                    await tts_rt.send_tts_end("cancelled")
                     await tts_rt.cancel()
                     await tts_rt.close()
                     tts_rt = None
@@ -169,6 +228,7 @@ async def tts_realtime(ws: WebSocket):
                             "type": "cancelled",
                             "sessionId": session.session_id,
                             "traceId": session.trace_id,
+                            "roundId": session.round_id,
                         },
                         ensure_ascii=False,
                     )
@@ -183,6 +243,12 @@ async def tts_realtime(ws: WebSocket):
                 degraded_mode = False
                 continue
 
+            logger.warning(
+                "TTS realtime unsupported message sessionId=%s roundId=%s type=%s",
+                session.session_id,
+                session.round_id,
+                msg_type,
+            )
             await ws.send_text(
                 ws_error_msg(
                     ErrorCode.TTS_FAIL,
@@ -191,9 +257,24 @@ async def tts_realtime(ws: WebSocket):
                     trace_id=session.trace_id,
                 )
             )
+    except RelayError as exc:
+        logger.warning("TTS realtime websocket error code=%s message=%s", exc.code, exc.message)
+        if session is not None:
+            await ws.send_text(
+                ws_error_msg(
+                    exc.code,
+                    exc.message,
+                    session_id=session.session_id,
+                    trace_id=session.trace_id,
+                )
+            )
+        else:
+            await ws.send_text(ws_error_msg(exc.code, exc.message))
     except WebSocketDisconnect:
         return
     finally:
+        _sid = session.session_id if session else "-"
+        logger.info("TTS realtime ws closed sessionId=%s", _sid)
         if tts_rt is not None:
             await tts_rt.close()
         if acquired:

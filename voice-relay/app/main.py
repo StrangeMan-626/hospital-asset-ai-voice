@@ -13,7 +13,7 @@ from app.core.http_client import start_client, stop_client
 from app.core.logger import RequestLogMiddleware, setup_logging
 from app.core.metrics import metrics
 from app.core.security import is_ip_allowed
-from app.routers import asr, asr_ws, llm, tts, tts_ws
+from app.routers import asr, asr_ws, llm, tts, tts_ws, wakeup_ws
 from app.services.degrade_service import DegradeService
 from app.services.session_service import SessionService
 
@@ -23,7 +23,6 @@ logger = logging.getLogger("voice-relay")
 @asynccontextmanager
 async def lifespan(application: FastAPI):
     settings = get_settings()
-    settings.validate()
     setup_logging(settings.LOG_LEVEL)
     await start_client()
     session_service = SessionService(settings)
@@ -63,6 +62,8 @@ app.include_router(asr_ws.router)
 app.include_router(llm.router)
 app.include_router(tts.router)
 app.include_router(tts_ws.router)
+if get_settings().WAKEUP_ENABLED:
+    app.include_router(wakeup_ws.router)
 
 
 @app.get("/health")

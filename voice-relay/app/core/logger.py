@@ -13,14 +13,6 @@ _terminal_id_var: contextvars.ContextVar[str] = contextvars.ContextVar("terminal
 _record_factory_installed = False
 
 
-class _ContextFilter(logging.Filter):
-    def filter(self, record: logging.LogRecord) -> bool:
-        record.traceId = _trace_id_var.get()
-        record.sessionId = _session_id_var.get()
-        record.terminalId = _terminal_id_var.get()
-        return True
-
-
 def generate_trace_id() -> str:
     return f"relay-{uuid.uuid4().hex[:12]}"
 
@@ -76,8 +68,6 @@ def setup_logging(level: str = "INFO") -> None:
                     datefmt="%Y-%m-%d %H:%M:%S",
                 )
             )
-    if not any(isinstance(existing, _ContextFilter) for existing in root_logger.filters):
-        root_logger.addFilter(_ContextFilter())
     if not _record_factory_installed:
         previous_factory = logging.getLogRecordFactory()
 

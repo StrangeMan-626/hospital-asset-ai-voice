@@ -7,4 +7,7 @@ services:
       - .env
     ports:
       - "${PORT:-9000}:${PORT:-9000}"
+    volumes:
+      - ./sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01:/app/sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01:ro
+      - ./keywords.txt:/app/keywords.txt:ro
     restart: unless-stopped

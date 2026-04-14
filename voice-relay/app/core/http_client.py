@@ -23,5 +23,6 @@ async def stop_client() -> None:
 
 
 def get_llm_client() -> httpx.AsyncClient:
-    assert _llm_client is not None, "LLM HTTP client not initialized"
+    if _llm_client is None:
+        raise RuntimeError("LLM HTTP client not initialized")
     return _llm_client

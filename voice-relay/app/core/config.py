@@ -23,8 +23,8 @@ class Settings(BaseSettings):
     ASR_REALTIME_MODEL: str = ""
     ASR_SYNC_MODEL: str = ""
     ASR_TIMEOUT: int = 15
-    ASR_FINAL_WAIT_MS: int = 1200
-    ASR_MAX_END_SILENCE_MS: int = 600
+    ASR_FINAL_WAIT_MS: int = 200
+    ASR_MAX_END_SILENCE_MS: int = 300
     ASR_ENABLE_HOTWORDS: bool = True
 
     LLM_API_KEY: str = ""
@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     TTS_REALTIME_MODEL: str = ""
     TTS_SYNC_MODEL: str = ""
     TTS_VOICE: str = ""
-    TTS_AUDIO_FORMAT: str = "mp3"
+    TTS_AUDIO_FORMAT: str = "pcm"
     TTS_TIMEOUT: int = 15
     TTS_FIRST_CHUNK_TIMEOUT: int = 3
 
@@ -46,6 +46,14 @@ class Settings(BaseSettings):
 
     DEGRADE_ENABLED: bool = True
     DEGRADE_RECOVER_INTERVAL_MS: int = 60000
+
+    WAKEUP_ENABLED: bool = True
+    WAKEUP_MODEL_DIR: str = ""
+    WAKEUP_KEYWORDS_FILE: str = ""
+    WAKEUP_MAX_CONNECTIONS: int = 30
+    WAKEUP_KEYWORDS_THRESHOLD: float = 0.3
+    WAKEUP_KEYWORDS_SCORE: float = 1.5
+    WAKEUP_NUM_THREADS: int = 2
 
     PORT: int = 9000
     ALLOWED_IPS: str = "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.1"
@@ -71,6 +79,11 @@ class Settings(BaseSettings):
         missing = [field for field in _REQUIRED_FIELDS if not getattr(self, field, "")]
         if missing:
             raise RuntimeError(f"缺失必填环境变量: {', '.join(missing)}")
+        if self.TTS_AUDIO_FORMAT not in ("pcm", "wav"):
+            import logging
+            logging.getLogger("voice-relay").warning(
+                "TTS_AUDIO_FORMAT=%s, V2.1主链路建议使用pcm或wav", self.TTS_AUDIO_FORMAT
+            )
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 

@@ -12,15 +12,16 @@ from app.core.errors import ErrorCode, RelayError
 
 logger = logging.getLogger("voice-relay")
 
-NATIVE_FORMATS = {"wav", "mp3", "pcm"}
-
 
 def _convert_to_wav(src_path: str) -> str:
     dst_path = src_path.rsplit(".", 1)[0] + ".wav"
-    subprocess.run(
-        ["ffmpeg", "-y", "-i", src_path, "-ar", "16000", "-ac", "1", "-f", "wav", dst_path],
-        capture_output=True, check=True,
-    )
+    try:
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", src_path, "-ar", "16000", "-ac", "1", "-f", "wav", dst_path],
+            capture_output=True, check=True,
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError) as exc:
+        raise RelayError(502, f"audio convert failed: {exc}", ErrorCode.ASR_CONNECT_FAIL) from exc
     return dst_path
 
 
@@ -37,12 +38,12 @@ async def recognize(audio_bytes: bytes, filename: str = "audio.wav") -> dict:
         tmp.write(audio_bytes)
         tmp.close()
 
-        if fmt not in NATIVE_FORMATS:
+        if fmt == "pcm":
+            audio_path = tmp.name
+        else:
             wav_path = await asyncio.to_thread(_convert_to_wav, tmp.name)
             audio_path = wav_path
             fmt = "wav"
-        else:
-            audio_path = tmp.name
 
         def _call():
             recognition = Recognition(

@@ -1,9 +1,12 @@
+import json
 import logging
 import time
 
 from fastapi import WebSocket
 
+from app.core.config import get_settings
 from app.services import asr_service, tts_service
+from app.services.tts_realtime_service import _resolve_codec_info
 
 logger = logging.getLogger("voice-relay")
 
@@ -72,7 +75,6 @@ class DegradeService:
                 if time.monotonic() - self._asr_open_time >= self._circuit_timeout_s:
                     if self._asr_half_open_used:
                         return True
-                    self._asr_circuit_open = False
                     self._asr_half_open_used = True
                     return False
                 return True
@@ -81,7 +83,6 @@ class DegradeService:
             if time.monotonic() - self._tts_open_time >= self._circuit_timeout_s:
                 if self._tts_half_open_used:
                     return True
-                self._tts_circuit_open = False
                 self._tts_half_open_used = True
                 return False
             return True
@@ -105,9 +106,29 @@ class DegradeService:
         ws: WebSocket,
         session_id: str = "",
         trace_id: str = "",
+        round_id: str = "",
     ) -> bytes:
         logger.warning("TTS degraded to sync mode for session %s trace %s", session_id, trace_id)
+        settings = get_settings()
         audio = await tts_service.synthesize(text)
+        codec, sample_rate = _resolve_codec_info(settings.TTS_AUDIO_FORMAT)
+        await ws.send_text(json.dumps({
+            "type": "tts_start",
+            "sessionId": session_id,
+            "traceId": trace_id,
+            "roundId": round_id,
+            "codec": codec,
+            "sampleRate": sample_rate,
+            "channels": 1,
+            "degraded": True,
+        }, ensure_ascii=False))
         for idx in range(0, len(audio), 4096):
             await ws.send_bytes(audio[idx : idx + 4096])
+        await ws.send_text(json.dumps({
+            "type": "tts_end",
+            "sessionId": session_id,
+            "traceId": trace_id,
+            "roundId": round_id,
+            "reason": "completed",
+        }, ensure_ascii=False))
         return audio

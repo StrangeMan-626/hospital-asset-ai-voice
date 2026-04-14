@@ -64,10 +64,9 @@ class ASRRealtimeSession:
 
     async def start(
         self,
-        hotwords: list[str] | None = None,
-        max_end_silence_ms: int | None = None,
+        vocabulary_id: str | None = None,
+        max_sentence_silence_ms: int | None = None,
     ) -> None:
-        del hotwords
         configure_dashscope(self._settings)
         self.loop = asyncio.get_running_loop()
         self._start_time = time.perf_counter()
@@ -82,7 +81,11 @@ class ASRRealtimeSession:
             format="pcm",
             sample_rate=16000,
         )
-        kwargs = {"max_end_silence": max_end_silence_ms or self._settings.ASR_MAX_END_SILENCE_MS}
+        kwargs = {
+            "max_sentence_silence": max_sentence_silence_ms or self._settings.ASR_MAX_END_SILENCE_MS,
+        }
+        if vocabulary_id and self._settings.ASR_ENABLE_HOTWORDS:
+            kwargs["vocabulary_id"] = vocabulary_id
         try:
             await asyncio.to_thread(self._recognition.start, **kwargs)
         except Exception as exc:
@@ -113,6 +116,11 @@ class ASRRealtimeSession:
         self.final_event.clear()
         if self._final_wait_task is not None and not self._final_wait_task.done():
             self._final_wait_task.cancel()
+        if self._recognition is not None:
+            try:
+                await asyncio.to_thread(self._recognition.stop)
+            except Exception:
+                logger.debug("ignore ASR recognition stop failure", exc_info=True)
         self._final_wait_task = asyncio.create_task(self._wait_for_final())
 
     async def speech_resume(self) -> None:
@@ -131,7 +139,8 @@ class ASRRealtimeSession:
                 await self._final_wait_task
         if self._recognition is not None:
             try:
-                await asyncio.to_thread(self._recognition.stop)
+                if not self._stop_requested:
+                    await asyncio.to_thread(self._recognition.stop)
             except Exception:
                 logger.debug("ignore ASR recognition stop failure", exc_info=True)
             self._recognition = None
@@ -144,9 +153,12 @@ class ASRRealtimeSession:
         message = getattr(result, "message", "") or "ASR realtime error"
         self._start_error = RelayError(502, message, code)
         self.open_event.set()
-        await self._ws.send_text(
-            ws_error_msg(code, message, session_id=self._session.session_id, trace_id=self._session.trace_id)
-        )
+        try:
+            await self._ws.send_text(
+                ws_error_msg(code, message, session_id=self._session.session_id, trace_id=self._session.trace_id)
+            )
+        except Exception:
+            logger.debug("failed to send ASR error to client", exc_info=True)
 
     async def handle_sentence(self, sentence) -> None:
         text = (sentence or {}).get("text", "")
@@ -154,7 +166,7 @@ class ASRRealtimeSession:
             return
         self._session.touch()
         elapsed_ms = (time.perf_counter() - self._start_time) * 1000
-        is_final = Recognition.is_sentence_end(sentence)
+        is_final = bool(sentence.get("sentence_end", False))
         if is_final:
             metrics.record("asr_final_ms", elapsed_ms)
             self.final_event.set()
@@ -163,6 +175,7 @@ class ASRRealtimeSession:
                 "text": text,
                 "sessionId": self._session.session_id,
                 "traceId": self._session.trace_id,
+                "roundId": self._session.round_id,
                 "fallbackFromPartial": False,
             }
             self._last_partial_text = ""
@@ -171,11 +184,14 @@ class ASRRealtimeSession:
                 metrics.record("asr_first_partial_ms", elapsed_ms)
                 self._first_partial_sent = True
             self._last_partial_text = text
+            stash = sentence.get("stash_results") or {}
             payload = {
                 "type": "partial",
                 "text": text,
                 "sessionId": self._session.session_id,
                 "traceId": self._session.trace_id,
+                "roundId": self._session.round_id,
+                "stable": bool(stash.get("fix", False)),
             }
         with logging_context(
             trace_id=self._session.trace_id,
@@ -195,6 +211,7 @@ class ASRRealtimeSession:
                     "text": self._last_partial_text,
                     "sessionId": self._session.session_id,
                     "traceId": self._session.trace_id,
+                    "roundId": self._session.round_id,
                     "fallbackFromPartial": True,
                 }
                 await self._ws.send_text(json.dumps(payload, ensure_ascii=False))

@@ -25,6 +25,7 @@ class Session:
         self.last_active_at = self.created_at
         self.suspended_at: float | None = None
         self.reconnect_count = 0
+        self.round_id: str = ""
 
     def _transition(self, state: SessionState) -> None:
         previous = self.state
@@ -39,8 +40,6 @@ class Session:
     def activate(self) -> None:
         if self.state == SessionState.CLOSED:
             raise RuntimeError("closed session cannot be activated")
-        if self.state == SessionState.SUSPENDED:
-            self.reconnect_count += 1
         self.suspended_at = None
         self.touch()
         self._transition(SessionState.ACTIVE)
