@@ -29,6 +29,15 @@ def get_tts_media_type(audio_format: str) -> str:
     return "audio/mpeg"
 
 
+def resolve_codec_info(audio_format: str) -> tuple[str, int]:
+    fmt = (audio_format or "mp3").lower()
+    if fmt == "pcm":
+        return "pcm_s16le", 16000
+    if fmt == "wav":
+        return "wav", 16000
+    return "audio/mpeg", 24000
+
+
 async def synthesize(text: str) -> bytes:
     settings = get_settings()
     configure_dashscope(settings)

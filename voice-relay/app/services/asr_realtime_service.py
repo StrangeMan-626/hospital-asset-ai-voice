@@ -6,6 +6,7 @@ import time
 
 from dashscope.audio.asr import Recognition, RecognitionCallback
 from fastapi import WebSocket
+from starlette.websockets import WebSocketState
 
 from app.core.config import Settings
 from app.core.dashscope_config import configure_dashscope
@@ -61,6 +62,21 @@ class ASRRealtimeSession:
         self.open_event = asyncio.Event()
         self.final_event = asyncio.Event()
         self.complete_event = asyncio.Event()
+
+    async def _safe_send_text(self, payload: str) -> bool:
+        if self._closed:
+            return False
+        if (
+            self._ws.client_state != WebSocketState.CONNECTED
+            or self._ws.application_state != WebSocketState.CONNECTED
+        ):
+            return False
+        try:
+            await self._ws.send_text(payload)
+            return True
+        except Exception:
+            logger.debug("failed to send ASR realtime message to client", exc_info=True)
+            return False
 
     async def start(
         self,
@@ -139,28 +155,31 @@ class ASRRealtimeSession:
                 await self._final_wait_task
         if self._recognition is not None:
             try:
-                if not self._stop_requested:
-                    await asyncio.to_thread(self._recognition.stop)
+                await asyncio.to_thread(self._recognition.stop)
             except Exception:
                 logger.debug("ignore ASR recognition stop failure", exc_info=True)
             self._recognition = None
+        self.loop = None
 
     async def handle_complete(self) -> None:
+        if self._closed:
+            return
         self.complete_event.set()
 
     async def handle_error(self, result) -> None:
+        if self._closed:
+            return
         code = getattr(result, "code", "") or ErrorCode.ASR_CONNECT_FAIL
         message = getattr(result, "message", "") or "ASR realtime error"
         self._start_error = RelayError(502, message, code)
         self.open_event.set()
-        try:
-            await self._ws.send_text(
-                ws_error_msg(code, message, session_id=self._session.session_id, trace_id=self._session.trace_id)
-            )
-        except Exception:
-            logger.debug("failed to send ASR error to client", exc_info=True)
+        await self._safe_send_text(
+            ws_error_msg(code, message, session_id=self._session.session_id, trace_id=self._session.trace_id)
+        )
 
     async def handle_sentence(self, sentence) -> None:
+        if self._closed:
+            return
         text = (sentence or {}).get("text", "")
         if not text:
             return
@@ -199,12 +218,14 @@ class ASRRealtimeSession:
             terminal_id=self._session.terminal_id,
         ):
             logger.info("ASR realtime %s", payload["type"])
-        await self._ws.send_text(json.dumps(payload, ensure_ascii=False))
+        await self._safe_send_text(json.dumps(payload, ensure_ascii=False))
 
     async def _wait_for_final(self) -> None:
         try:
             await asyncio.wait_for(self.final_event.wait(), timeout=self._settings.ASR_FINAL_WAIT_MS / 1000)
         except asyncio.TimeoutError:
+            if self._closed:
+                return
             if self._last_partial_text:
                 payload = {
                     "type": "final",
@@ -214,9 +235,9 @@ class ASRRealtimeSession:
                     "roundId": self._session.round_id,
                     "fallbackFromPartial": True,
                 }
-                await self._ws.send_text(json.dumps(payload, ensure_ascii=False))
+                await self._safe_send_text(json.dumps(payload, ensure_ascii=False))
             else:
-                await self._ws.send_text(
+                await self._safe_send_text(
                     ws_error_msg(
                         ErrorCode.ASR_TIMEOUT,
                         "ASR final wait timeout",

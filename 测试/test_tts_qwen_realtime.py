@@ -1,6 +1,6 @@
 """
-测试 TTS WebSocket 流式：ws://host/tts/realtime
-用法: python test_tts_realtime.py [完整句子]
+Test the Qwen realtime TTS WebSocket endpoint: ws://host/tts/realtime/qwen
+Usage: python test_tts_qwen_realtime.py [full sentence]
 """
 import asyncio
 import json
@@ -9,8 +9,8 @@ import uuid
 
 import websockets
 
-WS_URL = "ws://localhost:9000/tts/realtime"
-OUT_BASE = "./tts_realtime_output"
+WS_URL = "ws://localhost:9000/tts/realtime/qwen"
+OUT_BASE = "./tts_qwen_realtime_output"
 MIN_FIRST_CHUNK = 20
 CHUNK_CHARS = 4
 CHUNK_DELAY_S = 0.06
@@ -26,6 +26,8 @@ def _suffix_for_codec(codec: str) -> str:
         return ".pcm"
     if codec == "wav":
         return ".wav"
+    if codec == "audio/ogg":
+        return ".ogg"
     return ".bin"
 
 
@@ -51,7 +53,7 @@ async def run_stream(text: str) -> None:
             elif event_type == "error":
                 raise RuntimeError(f"{data.get('code')}: {data.get('message')}")
 
-    full = text.strip() or "你好，这是流式分片测试。"
+    full = text.strip() or "你好，这是 Qwen 实时语音合成独立接口测试。"
     if len(full) <= MIN_FIRST_CHUNK:
         chunks = [full]
     else:
@@ -67,7 +69,7 @@ async def run_stream(text: str) -> None:
                     {
                         "type": "start",
                         "sessionId": str(uuid.uuid4()),
-                        "terminalId": "test-tts-rt",
+                        "terminalId": "test-tts-qwen-rt",
                         "roundId": "round-1",
                     },
                     ensure_ascii=False,

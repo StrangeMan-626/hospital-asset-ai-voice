@@ -27,3 +27,5 @@ DEPLOY_DOCKER_OFFLINE.md
 vendor/
 
 app/*.m4a
+sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01/
+sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01.tar.bz2
