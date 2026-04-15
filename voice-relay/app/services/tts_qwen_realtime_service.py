@@ -58,7 +58,6 @@ class QwenTTSRealtimeSession:
         self._bridge = _QwenTTSBridge(self)
         self._first_chunk_sent = False
         self._tts_start_sent = False
-        self._tts_end_sent = False
         self._cancelled = False
         self._closed = False
         self._session_finished = False
@@ -265,11 +264,6 @@ class QwenTTSRealtimeSession:
             return
         if event_type == "session.finished":
             self._session_finished = True
-            await self.send_tts_end("completed")
-            self.complete_event.set()
-            return
-        if event_type == "response.audio.done":
-            await self.send_tts_end("completed")
             self.complete_event.set()
             return
         if event_type == "response.audio.delta":
@@ -296,9 +290,8 @@ class QwenTTSRealtimeSession:
             await self._set_error(RelayError(502, error_message, ErrorCode.TTS_FAIL), error_message)
 
     async def send_tts_end(self, reason: str = "completed") -> None:
-        if not self._tts_start_sent or self._tts_end_sent:
+        if not self._tts_start_sent:
             return
-        self._tts_end_sent = True
         await self._safe_send_text(
             {
                 "type": "tts_end",
@@ -358,7 +351,6 @@ class QwenTTSRealtimeSession:
         self._error = None
         self._first_chunk_sent = False
         self._tts_start_sent = False
-        self._tts_end_sent = False
         self._cancelled = False
         self._closed = False
         self._session_finished = False

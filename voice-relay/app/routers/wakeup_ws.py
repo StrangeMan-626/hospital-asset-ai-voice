@@ -40,8 +40,6 @@ async def wakeup_ws(ws: WebSocket):
         logger.info("wakeup connection opened")
         while True:
             msg = await ws.receive()
-            if msg["type"] == "websocket.disconnect":
-                break
             if "text" in msg:
                 data = json.loads(msg["text"])
                 msg_type = data.get("type")
@@ -78,10 +76,6 @@ async def wakeup_ws(ws: WebSocket):
                     logger.info(f"[{terminal_id}] wake_detected: {result.strip()}, costMs={cost_ms}")
                     stream = kws.create_stream()
     except WebSocketDisconnect:
-        pass
-    except RuntimeError as exc:
-        if 'Cannot call "receive" once a disconnect message has been received' not in str(exc):
-            raise
         pass
     finally:
         async with _lock:
