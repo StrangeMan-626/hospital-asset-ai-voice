@@ -219,21 +219,16 @@ class QwenTTSRealtimeSession:
             logger.info("Qwen TTS realtime downstream websocket opened")
 
     async def handle_close(self, close_status_code, close_msg) -> None:
-        expected_close = self._closed or self._cancelled or self._session_finished
         with self._log_context():
-            log_fn = logger.info if expected_close else logger.warning
-            log_fn(
-                "Qwen TTS realtime downstream websocket closed code=%s msg=%s firstChunkSent=%s audioChunks=%s audioBytes=%s sessionFinished=%s cancelled=%s closed=%s",
+            logger.warning(
+                "Qwen TTS realtime downstream websocket closed code=%s msg=%s firstChunkSent=%s audioChunks=%s audioBytes=%s",
                 close_status_code,
                 close_msg,
                 self._first_chunk_sent,
                 self._audio_chunks,
                 self._audio_bytes,
-                self._session_finished,
-                self._cancelled,
-                self._closed,
             )
-        if not expected_close:
+        if not self._closed and not self._cancelled and not self._session_finished:
             await self._set_error(
                 RelayError(502, "Qwen realtime connection closed unexpectedly", ErrorCode.TTS_CONNECT_FAIL),
                 "Qwen realtime connection closed unexpectedly",

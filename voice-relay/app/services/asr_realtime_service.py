@@ -124,12 +124,6 @@ class ASRRealtimeSession:
                 logger.debug("ignore ASR recognition stop failure", exc_info=True)
         self._final_wait_task = asyncio.create_task(self._wait_for_final())
 
-    async def speech_resume(self) -> None:
-        self._stop_sent = False
-        if self._final_wait_task is not None and not self._final_wait_task.done():
-            self._final_wait_task.cancel()
-        self.final_event.clear()
-
     async def close(self) -> None:
         if self._closed:
             return

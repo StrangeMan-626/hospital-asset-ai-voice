@@ -162,63 +162,6 @@ async def asr_realtime(ws: WebSocket):
                 )
                 continue
 
-            if msg_type == "resume":
-                requested_session_id = data.get("sessionId", "")
-                found = session_service.get(requested_session_id)
-                if found is None or found.state != SessionState.SUSPENDED or found.is_expired(settings.SESSION_SUSPEND_TTL_MS):
-                    await ws.send_text(
-                        ws_error_msg(ErrorCode.SESSION_EXPIRED, "session expired", session_id=requested_session_id)
-                    )
-                    continue
-                if not acquired:
-                    acquired = await session_service.acquire_asr()
-                if not acquired:
-                    await ws.send_text(
-                        ws_error_msg(
-                            ErrorCode.SESSION_LIMIT,
-                            "ASR session limit reached",
-                            session_id=found.session_id,
-                            trace_id=found.trace_id,
-                        )
-                    )
-                    continue
-                session = found
-                session.round_id = data.get("roundId", "")
-                session.resume()
-                session_service.attach_connection(session.session_id, ws)
-                degraded_audio.clear()
-                degraded_mode = degrade_service.should_degrade_asr()
-                vocabulary_id = _resolve_vocabulary_id(data)
-                max_sentence_silence_ms = _resolve_max_sentence_silence_ms(data)
-                asr_rt = None
-                if not degraded_mode:
-                    asr_rt = ASRRealtimeSession(session, ws, settings)
-                    try:
-                        await asr_rt.start(vocabulary_id=vocabulary_id, max_sentence_silence_ms=max_sentence_silence_ms)
-                        degrade_service.record_asr_success()
-                    except RelayError as exc:
-                        degrade_service.record_asr_fail()
-                        await ws.send_text(
-                            ws_error_msg(
-                                exc.code,
-                                exc.message,
-                                session_id=session.session_id,
-                                trace_id=session.trace_id,
-                            )
-                        )
-                        await asr_rt.close()
-                        asr_rt = None
-                        degraded_mode = True
-                logger.info(
-                    "ASR realtime resumed sessionId=%s traceId=%s roundId=%s degraded=%s",
-                    session.session_id,
-                    session.trace_id,
-                    session.round_id,
-                    degraded_mode,
-                )
-                await ws.send_text(json.dumps({"type": "resumed", "sessionId": session.session_id}, ensure_ascii=False))
-                continue
-
             if session is None:
                 await ws.send_text(ws_error_msg(ErrorCode.ASR_SESSION_CLOSED, "session not started"))
                 continue
@@ -241,12 +184,6 @@ async def asr_realtime(ws: WebSocket):
                     degrade_service.record_asr_success()
                 elif asr_rt is not None:
                     await asr_rt.stop()
-                continue
-
-            if msg_type == "speech_resume":
-                session.touch()
-                if asr_rt is not None and not degraded_mode:
-                    await asr_rt.speech_resume()
                 continue
 
             await ws.send_text(
