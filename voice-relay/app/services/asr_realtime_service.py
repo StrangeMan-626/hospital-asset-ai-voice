@@ -52,7 +52,7 @@ class ASRRealtimeSession:
         self._bridge = _RecognitionBridge(self)
         self._start_error: RelayError | None = None
         self._last_partial_text = ""
-        self._stop_requested = False
+        self._stop_sent = False
         self._first_partial_sent = False
         self._closed = False
         self._start_time = 0.0
@@ -74,6 +74,7 @@ class ASRRealtimeSession:
         self.final_event.clear()
         self.complete_event.clear()
         self._start_error = None
+        self._stop_sent = False
         self._first_partial_sent = False
         self._recognition = Recognition(
             model=self._settings.ASR_REALTIME_MODEL,
@@ -101,7 +102,7 @@ class ASRRealtimeSession:
     async def feed_audio(self, pcm_data: bytes) -> None:
         if self._closed or self._recognition is None:
             raise RelayError(400, "ASR session is closed", ErrorCode.ASR_SESSION_CLOSED)
-        if self._stop_requested:
+        if self._stop_sent:
             return
         self._session.touch()
         try:
@@ -112,7 +113,7 @@ class ASRRealtimeSession:
     async def stop(self) -> None:
         if self._closed:
             return
-        self._stop_requested = True
+        self._stop_sent = True
         self.final_event.clear()
         if self._final_wait_task is not None and not self._final_wait_task.done():
             self._final_wait_task.cancel()
@@ -124,7 +125,7 @@ class ASRRealtimeSession:
         self._final_wait_task = asyncio.create_task(self._wait_for_final())
 
     async def speech_resume(self) -> None:
-        self._stop_requested = False
+        self._stop_sent = False
         if self._final_wait_task is not None and not self._final_wait_task.done():
             self._final_wait_task.cancel()
         self.final_event.clear()
@@ -139,7 +140,7 @@ class ASRRealtimeSession:
                 await self._final_wait_task
         if self._recognition is not None:
             try:
-                if not self._stop_requested:
+                if not self._stop_sent:
                     await asyncio.to_thread(self._recognition.stop)
             except Exception:
                 logger.debug("ignore ASR recognition stop failure", exc_info=True)
@@ -225,5 +226,4 @@ class ASRRealtimeSession:
                     )
                 )
         finally:
-            self._stop_requested = False
             self._final_wait_task = None
