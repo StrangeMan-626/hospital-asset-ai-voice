@@ -3,11 +3,14 @@
 voice-relay deployment pipeline
 
 Modes:
-1. A flow: build image on server A and download voice-relay_latest.tar to local.
-2. B flow: upload local image tar and runtime files to server B, then load/start.
-3. Full flow: if both A and B arguments are provided, run A then B.
+1. A flow part one: upload/unzip build package on server A, then delete remote zip.
+2. A flow part two: build image on server A and download voice-relay_latest.tar to local.
+3. B flow: upload local image tar and runtime files to server B, then load/start.
+4. Full flow: if both A and B arguments are provided without --part, run full A then B.
 
 Examples:
+python deploy_pipeline.py --ahost 1.2.3.4 --apwd 123 --adir /home/test --part one
+python deploy_pipeline.py --ahost 1.2.3.4 --apwd 123 --adir /home/test --part two
 python deploy_pipeline.py --ahost 1.2.3.4 --apwd 123 --adir /home/test
 python deploy_pipeline.py --bhost 5.6.7.8 --bpwd 456 --bdir /home/test
 python deploy_pipeline.py --ahost 1.2.3.4 --apwd 123 --adir /home/test --bhost 5.6.7.8 --bpwd 456 --bdir /home/test
@@ -57,6 +60,7 @@ ZIP_DIR_SKIP = {
     "venv",
 }
 ZIP_FILE_SUFFIX_SKIP = {".pyc", ".pyo", ".pyd"}
+A_FLOW_PARTS = ("one", "two")
 
 
 class RemoteSession:
@@ -269,16 +273,26 @@ def normalize_remote_dir(remote_dir: str) -> str:
     return cleaned.rstrip("/")
 
 
-def build_server_a_commands(remote_dir: str) -> Sequence[str]:
+def build_server_a_part_one_commands(remote_dir: str) -> Sequence[str]:
     deploy_zip = posixpath.join(remote_dir, DEPLOY_ZIP_NAME)
     project_dir = posixpath.join(remote_dir, PROJECT_DIR_NAME)
-    image_tar = posixpath.join(remote_dir, IMAGE_TAR_NAME)
     return [
         f"mkdir -p {quote_remote(remote_dir)}",
         f"rm -rf {quote_remote(project_dir)}",
         f"cd {quote_remote(remote_dir)}",
         f"unzip -oq {quote_remote(deploy_zip)} -d {quote_remote(remote_dir)}",
         f"rm -f {quote_remote(deploy_zip)}",
+    ]
+
+
+def build_server_a_part_two_commands(remote_dir: str) -> Sequence[str]:
+    project_dir = posixpath.join(remote_dir, PROJECT_DIR_NAME)
+    image_tar = posixpath.join(remote_dir, IMAGE_TAR_NAME)
+    return [
+        (
+            f"test -d {quote_remote(project_dir)} || "
+            f"(echo 'Missing extracted project dir: {project_dir}. Run --part one first.' >&2; exit 1)"
+        ),
         f"docker rm -f {CONTAINER_NAME} >/dev/null 2>&1 || true",
         f"docker rmi -f {IMAGE_NAME} >/dev/null 2>&1 || true",
         f"cd {quote_remote(project_dir)}",
@@ -340,16 +354,23 @@ def run_a_flow(
     password: str,
     remote_dir: str,
     work_dir: Path,
+    part: str | None = None,
 ) -> Path:
-    build_zip = create_build_zip(work_dir / DEPLOY_ZIP_NAME)
     local_image_tar = work_dir / IMAGE_TAR_NAME
-    remote_zip = posixpath.join(remote_dir, DEPLOY_ZIP_NAME)
     remote_tar = posixpath.join(remote_dir, IMAGE_TAR_NAME)
 
     with RemoteSession("server-a", host, port, user, password) as server_a:
-        server_a.upload_file(build_zip, remote_zip)
-        remove_local_file(build_zip, "local build zip after upload")
-        run_remote_script(server_a, build_server_a_commands(remote_dir))
+        if part in (None, "one"):
+            build_zip = create_build_zip(work_dir / DEPLOY_ZIP_NAME)
+            remote_zip = posixpath.join(remote_dir, DEPLOY_ZIP_NAME)
+            server_a.upload_file(build_zip, remote_zip)
+            remove_local_file(build_zip, "local build zip after upload")
+            run_remote_script(server_a, build_server_a_part_one_commands(remote_dir))
+            if part == "one":
+                print(f"[server-a] prepared project files in {remote_dir}/{PROJECT_DIR_NAME}")
+                return local_image_tar
+
+        run_remote_script(server_a, build_server_a_part_two_commands(remote_dir))
         server_a.download_file(remote_tar, local_image_tar)
         run_remote_script(server_a, cleanup_server_a_commands(remote_dir))
 
@@ -391,6 +412,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--auser", default="root", help="server A SSH user, default root")
     parser.add_argument("--apwd", help="server A SSH password")
     parser.add_argument("--adir", help="server A target dir, e.g. /home/test")
+    parser.add_argument("--part", choices=A_FLOW_PARTS, help="run only one part of A flow: one or two")
 
     parser.add_argument("--bhost", help="server B host or IP")
     parser.add_argument("--bport", type=int, default=22, help="server B SSH port")
@@ -422,6 +444,12 @@ def validate_args(args: argparse.Namespace) -> tuple[bool, bool]:
         if missing:
             raise SystemExit(f"B flow missing args: {', '.join('--' + item for item in missing)}")
 
+    if args.part and not has_a:
+        raise SystemExit("--part can only be used with A flow args")
+
+    if args.part and has_b:
+        raise SystemExit("--part cannot be used together with B flow args")
+
     return has_a, has_b
 
 
@@ -444,6 +472,7 @@ def main() -> int:
             password=a_password,
             remote_dir=normalize_remote_dir(args.adir),
             work_dir=work_dir,
+            part=args.part,
         )
 
     if has_b:
