@@ -63,6 +63,9 @@ class Settings(BaseSettings):
     WAKEUP_KEYWORDS_SCORE: float = 1.5
     WAKEUP_NUM_THREADS: int = 2
 
+    OCR_ENABLED: bool = True
+    OCR_BETA: bool = False
+
     PORT: int = 9000
     ALLOWED_IPS: str = "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.1"
     LOG_LEVEL: str = "INFO"
