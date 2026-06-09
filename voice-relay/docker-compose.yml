@@ -11,3 +11,10 @@ services:
       - ./sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01:/app/sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01:ro
       - ./keywords.txt:/app/keywords.txt:ro
     restart: unless-stopped
+    networks:
+      - data-aiops-net
+
+networks:
+  data-aiops-net:
+    name: data-aiops-net
+    external: true

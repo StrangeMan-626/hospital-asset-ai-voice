@@ -39,6 +39,7 @@ except ImportError as exc:  # pragma: no cover
 
 IMAGE_NAME = "voice-relay:latest"
 CONTAINER_NAME = "voice-relay"
+DOCKER_NETWORK = "data-aiops-net"
 DEPLOY_ZIP_NAME = "voice-relay-deploy.zip"
 RUNTIME_ZIP_NAME = "voice-relay.zip"
 IMAGE_TAR_NAME = "voice-relay_latest.tar"
@@ -310,7 +311,7 @@ def cleanup_server_a_commands(remote_dir: str) -> Sequence[str]:
     ]
 
 
-def build_server_b_commands(remote_dir: str) -> Sequence[str]:
+def build_server_b_commands(remote_dir: str, network: str) -> Sequence[str]:
     project_dir = posixpath.join(remote_dir, PROJECT_DIR_NAME)
     runtime_zip = posixpath.join(remote_dir, RUNTIME_ZIP_NAME)
     image_tar = posixpath.join(remote_dir, IMAGE_TAR_NAME)
@@ -331,8 +332,13 @@ def build_server_b_commands(remote_dir: str) -> Sequence[str]:
         f"docker rmi -f {IMAGE_NAME} >/dev/null 2>&1 || true",
         f"docker load -i {quote_remote(image_tar)}",
         (
+            f"docker network inspect {shlex.quote(network)} >/dev/null 2>&1 "
+            f"|| docker network create {shlex.quote(network)}"
+        ),
+        (
             "docker run -d "
             f"--name {CONTAINER_NAME} "
+            f"--network {shlex.quote(network)} "
             "--restart unless-stopped "
             f"--env-file {quote_remote(env_file)} "
             "-p 9000:9000 "
@@ -388,6 +394,7 @@ def run_b_flow(
     env_path: Path,
     keywords_path: Path,
     model_dir: Path,
+    network: str,
 ) -> None:
     local_image_tar = ensure_exists(work_dir / IMAGE_TAR_NAME, IMAGE_TAR_NAME)
     runtime_zip = create_runtime_zip(work_dir / RUNTIME_ZIP_NAME, env_path, keywords_path, model_dir)
@@ -399,7 +406,7 @@ def run_b_flow(
         server_b.upload_file(runtime_zip, remote_zip)
         remove_local_file(local_image_tar, "local image tar after upload")
         remove_local_file(runtime_zip, "local runtime zip after upload")
-        run_remote_script(server_b, build_server_b_commands(remote_dir))
+        run_remote_script(server_b, build_server_b_commands(remote_dir, network))
 
 
 def parse_args() -> argparse.Namespace:
@@ -424,6 +431,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--keywords", default=str(vr / "keywords.txt"), help="local keywords.txt for server B package")
     parser.add_argument("--modeldir", default=str(vr / MODEL_DIR_NAME), help="local model dir for server B package")
     parser.add_argument("--workdir", default=str(root), help="local work dir for generated zip/tar")
+    parser.add_argument("--network", default=DOCKER_NETWORK, help=f"docker network for container, default {DOCKER_NETWORK}")
     return parser.parse_args()
 
 
@@ -487,6 +495,7 @@ def main() -> int:
             env_path=env_path,
             keywords_path=keywords_path,
             model_dir=model_dir,
+            network=args.network,
         )
 
     print("[done] deployment completed.")

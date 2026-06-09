@@ -92,9 +92,11 @@ python /F:/Codework/hospital-asset-ai-voice/deploy_pipeline.py --bhost 1.2.3.4 -
 11. 执行：
 
 ```bash
+docker network inspect data-aiops-net >/dev/null 2>&1 || docker network create data-aiops-net
 docker load -i /home/test/voice-relay_latest.tar
 docker run -d \
   --name voice-relay \
+  --network data-aiops-net \
   --restart unless-stopped \
   --env-file /home/test/voice-relay/.env \
   -p 9000:9000 \
