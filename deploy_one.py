@@ -43,7 +43,7 @@ except ImportError as exc:  # pragma: no cover
 
 IMAGE_NAME = "voice-relay:latest"
 CONTAINER_NAME = "voice-relay"
-DOCKER_NETWORK = "data-aiops-net"
+DOCKER_NETWORK = "data_aiops-net"
 DEPLOY_ZIP_NAME = "voice-relay-deploy.zip"
 RUNTIME_ZIP_NAME = "voice-relay.zip"
 PROJECT_DIR_NAME = "voice-relay"
